@@ -1,0 +1,6 @@
+#!/bin/bash
+
+currentDir="${PWD##*/}"
+cp -r dist $1/node_modules/@5b1/${currentDir}
+
+
