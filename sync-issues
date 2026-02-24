@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Syncs all open issues (with comments) from an upstream repo to willsmithte's fork.
+# Automatically forks the repo if needed.
+# Usage: sync-issues owner/repo
+# Re-running updates existing synced issues and adds new comments.
+
+FORK_OWNER="willsmithte"
+MARKER_PREFIX="<!-- upstream-issue:"
+COMMENT_MARKER_PREFIX="<!-- upstream-comment:"
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: sync-issues <owner/repo>"
+  exit 1
+fi
+
+SOURCE_REPO="$1"
+REPO_NAME="${SOURCE_REPO#*/}"
+FORK_REPO="${FORK_OWNER}/${REPO_NAME}"
+
+# ── Fork the repo if needed ──────────────────────────────────────────────────
+if gh repo view "$FORK_REPO" &>/dev/null; then
+  echo "Fork already exists: ${FORK_REPO}"
+else
+  echo "Forking ${SOURCE_REPO}..."
+  gh repo fork "$SOURCE_REPO" --clone=false
+  echo "Waiting for fork to be ready..."
+  sleep 5
+fi
+
+echo "Syncing open issues: ${SOURCE_REPO} -> ${FORK_REPO}"
+
+# ── Ensure issues are enabled on fork ────────────────────────────────────────
+gh repo edit "$FORK_REPO" --enable-issues 2>/dev/null || true
+
+# ── Ensure labels exist in fork ──────────────────────────────────────────────
+echo "Syncing labels..."
+gh label list --repo "$SOURCE_REPO" --json name,color,description --limit 500 |
+  jq -c '.[]' |
+  while IFS= read -r label; do
+    name=$(echo "$label" | jq -r '.name')
+    color=$(echo "$label" | jq -r '.color')
+    desc=$(echo "$label" | jq -r '.description // ""')
+    if gh label create "$name" --repo "$FORK_REPO" --color "$color" --description "$desc" 2>/dev/null; then
+      echo "  Created label: $name"
+    else
+      gh label edit "$name" --repo "$FORK_REPO" --color "$color" --description "$desc" 2>/dev/null || true
+    fi
+  done
+
+# ── Ensure milestones exist in fork ──────────────────────────────────────────
+echo "Syncing milestones..."
+gh api --paginate "repos/${SOURCE_REPO}/milestones?state=open" --jq '.[] | [.title, .description // "", .due_on // ""] | @tsv' |
+  while IFS=$'\t' read -r title desc due; do
+    existing=$(gh api "repos/${FORK_REPO}/milestones?state=open" --jq ".[] | select(.title == \"${title}\") | .number" 2>/dev/null || true)
+    if [[ -z "$existing" ]]; then
+      args=("repos/${FORK_REPO}/milestones" -f "title=${title}")
+      [[ -n "$desc" ]] && args+=(-f "description=${desc}")
+      [[ -n "$due" && "$due" != "null" ]] && args+=(-f "due_on=${due}")
+      if gh api --method POST "${args[@]}" --jq '.number' >/dev/null 2>&1; then
+        echo "  Created milestone: $title"
+      fi
+    fi
+  done
+
+# ── Build index of already-synced issues in fork (marker -> fork issue number) ─
+echo "Indexing existing synced issues in fork..."
+declare -A SYNCED_ISSUES
+
+gh issue list --repo "$FORK_REPO" --state all --limit 5000 --json number,body |
+  jq -c '.[]' |
+  while IFS= read -r issue; do
+    num=$(echo "$issue" | jq -r '.number')
+    body=$(echo "$issue" | jq -r '.body // ""')
+    marker=$(echo "$body" | sed -n 's/.*<!-- upstream-issue: \([^ ]*\) -->.*/\1/p')
+    if [[ -n "$marker" ]]; then
+      echo "${marker}=${num}"
+    fi
+  done > /tmp/sync-issues-index.txt
+
+while IFS='=' read -r key val; do
+  SYNCED_ISSUES["$key"]="$val"
+done < /tmp/sync-issues-index.txt 2>/dev/null || true
+
+# ── Fetch and sync open issues ───────────────────────────────────────────────
+echo "Fetching open issues from ${SOURCE_REPO}..."
+
+gh issue list --repo "$SOURCE_REPO" --state open --limit 5000 \
+  --json number,title,body,labels,assignees,milestone |
+  jq -c '.[]' |
+  while IFS= read -r issue; do
+    src_num=$(echo "$issue" | jq -r '.number')
+    title=$(echo "$issue" | jq -r '.title')
+    body=$(echo "$issue" | jq -r '.body // ""' | sed 's/@\([a-zA-Z0-9]\)/@ \1/g')
+    labels=$(echo "$issue" | jq -r '[.labels[].name] | join(",")')
+    assignees=$(echo "$issue" | jq -r '[.assignees[].login] | join(",")')
+    milestone_title=$(echo "$issue" | jq -r '.milestone.title // ""')
+
+    marker="${SOURCE_REPO}#${src_num}"
+    tagged_body="${body}
+
+${MARKER_PREFIX} ${marker} -->"
+
+    args=()
+    [[ -n "$labels" ]] && args+=(--label "$labels")
+    [[ -n "$assignees" ]] && args+=(--assignee "$assignees")
+
+    if [[ -n "$milestone_title" ]]; then
+      fork_ms=$(gh api "repos/${FORK_REPO}/milestones?state=open" --jq ".[] | select(.title == \"${milestone_title}\") | .number" 2>/dev/null || true)
+      [[ -n "$fork_ms" ]] && args+=(--milestone "$milestone_title")
+    fi
+
+    existing="${SYNCED_ISSUES[$marker]:-}"
+
+    if [[ -n "$existing" ]]; then
+      echo "  Updating #${existing} (upstream #${src_num}): ${title}"
+      gh issue edit "$existing" --repo "$FORK_REPO" \
+        --title "$title" --body "$tagged_body" "${args[@]}" 2>/dev/null || true
+      fork_num="$existing"
+    else
+      echo "  Creating (upstream #${src_num}): ${title}"
+      fork_num=$(gh issue create --repo "$FORK_REPO" \
+        --title "$title" --body "$tagged_body" "${args[@]}" 2>/dev/null | grep -o '[0-9]*$' || true)
+      if [[ -z "$fork_num" ]]; then
+        continue
+      fi
+    fi
+
+    # ── Sync comments for this issue ───────────────────────────────────────
+    # Get existing comment markers in fork issue
+    existing_comment_markers=$(
+      gh api --paginate "repos/${FORK_REPO}/issues/${fork_num}/comments" --jq '.[].body' 2>/dev/null |
+        sed -n "s/.*<!-- upstream-comment: \([^ ]*\) -->.*/\1/p" || true
+    )
+
+    # Fetch upstream comments and create missing ones
+    gh api --paginate "repos/${SOURCE_REPO}/issues/${src_num}/comments" \
+      --jq '.[] | [.id, .user.login, .created_at, .body] | @tsv' 2>/dev/null |
+      while IFS=$'\t' read -r comment_id author created_at comment_body; do
+        comment_marker="${SOURCE_REPO}#${src_num}-${comment_id}"
+
+        if echo "$existing_comment_markers" | grep -qF "$comment_marker"; then
+          continue
+        fi
+
+        comment_body=$(echo "$comment_body" | sed 's/@\([a-zA-Z0-9]\)/@ \1/g')
+
+        synced_comment="**${author}** commented on ${created_at}:
+
+---
+
+${comment_body}
+
+${COMMENT_MARKER_PREFIX} ${comment_marker} -->"
+
+        gh api --method POST "repos/${FORK_REPO}/issues/${fork_num}/comments" \
+          -f "body=${synced_comment}" >/dev/null 2>&1 && \
+          echo "    Synced comment by @${author}" || true
+      done
+  done
+
+echo "Done."
