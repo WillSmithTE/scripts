@@ -5,10 +5,19 @@
 export PATH="/Users/willy/.nvm/versions/node/v20.19.4/bin:$PATH"
 
 LOGFILE="/tmp/recruiter-drafts.log"
+PROMPT_FILE=$(mktemp /tmp/recruiter-prompt.XXXXXX)
 
 echo "$(date): Starting recruiter draft run" >> "$LOGFILE"
 
-claude --print -p "$(cat <<'PROMPT'
+GMAIL_DIR="$HOME/.claude/skills/gmail"
+GMAIL="$GMAIL_DIR/.venv/bin/python $GMAIL_DIR/scripts/gmail.py"
+
+# Fetch recruiter emails from the past 7 days
+RECRUITER_RESULTS=$($GMAIL read --query "is:inbox newer_than:7d (recruiter OR role OR opportunity OR position OR hiring) -category:promotions" --limit 20 --full 2>&1)
+LINKEDIN_RESULTS=$($GMAIL read --query "from:linkedin.com newer_than:7d subject:(messaged you OR opportunity OR role OR position)" --limit 10 --full 2>&1)
+
+# Build prompt with email data inlined, instructions use literal $
+cat > "$PROMPT_FILE" <<EMAILDATA
 You are handling a weekly recruiter email triage for Will Smith (willsmithte@gmail.com).
 
 CONTEXT:
@@ -18,33 +27,46 @@ CONTEXT:
 - He wants to maintain good relationships with recruiters for when the time comes
 - He has been working with Amy Meyer at Aussie Recruit (amy@aussierecruitsf.com) for US roles specifically
 
+Here are the Gmail search results from the past 7 days:
+
+=== RECRUITER EMAILS ===
+$RECRUITER_RESULTS
+
+=== LINKEDIN JOB MESSAGES ===
+$LINKEDIN_RESULTS
+
+EMAILDATA
+
+cat >> "$PROMPT_FILE" <<'INSTRUCTIONS'
 TASK:
-1. Search Gmail for unanswered recruiter/job outreach from the past 7 days. Use these queries:
-   - Personal recruiter emails (not newsletters/bulk): "is:inbox newer_than:7d (recruiter OR role OR opportunity OR position OR hiring) -category:promotions"
-   - LinkedIn job messages: "from:linkedin.com newer_than:7d subject:(messaged you OR opportunity OR role OR position)"
+1. Review the emails above. Skip any that are obviously newsletters/bulk. Skip any where Will has already replied.
 
-2. For each result, check if Will has already replied. Skip if he has. Skip obvious newsletters/bulk emails.
+2. For genuinely personal outreach that needs a reply, create a draft reply using Bash:
+   ~/.claude/skills/gmail/.venv/bin/python ~/.claude/skills/gmail/scripts/gmail.py draft --reply-to MSG_ID --body "reply text"
 
-3. For genuinely personal outreach that needs a reply, create a draft reply that is:
+   Drafts should be:
    - Warm, appreciative, and human
    - Honest that he's not actively looking right now but plans to move to the US in 2027
    - Specific to what they actually wrote (don't be generic)
    - Short (3-5 sentences max)
    - Signs off as "Will"
 
-4. After processing, use /notify to send a push notification summarizing:
+3. After processing, send a push notification via Bash:
+   API_KEY=$(grep NOTIFICATIONS_API_KEY ~/.zshrc | tail -1 | sed "s/^export NOTIFICATIONS_API_KEY=//;s/^'//;s/'$//")
+   curl -s -X POST https://willsmithte.com/resource/notifications \
+     -H 'Content-Type: application/json' \
+     -H 'User-Agent: Mozilla/5.0' \
+     -H "Authorization: Bearer $API_KEY" \
+     --data-binary "$(jq -n --arg title "Recruiter Drafts" --arg body "YOUR SUMMARY HERE" '{title: $title, body: $body}')"
+
+   Include in the summary:
    - How many recruiter emails found
    - How many drafts created
    - Brief description of each draft (who from, what role)
-   - If none found, still notify: "No recruiter emails to handle this week"
+   - If none found: "No recruiter emails to handle this week"
+INSTRUCTIONS
 
-USE: GMAIL_DIR=~/.claude/skills/gmail
-Gmail CLI: $GMAIL_DIR/.venv/bin/python $GMAIL_DIR/scripts/gmail.py
+claude --print --dangerously-skip-permissions --allowed-tools "Bash" -p "$(cat "$PROMPT_FILE")" >> "$LOGFILE" 2>&1
 
-To create drafts: gmail.py draft --reply-to MSG_ID --body "..."
-To read emails: gmail.py read --query "..." --limit 20 --full
-To get a specific email: gmail.py get --id MSG_ID
-PROMPT
-)" >> "$LOGFILE" 2>&1
-
+rm -f "$PROMPT_FILE"
 echo "$(date): Finished recruiter draft run" >> "$LOGFILE"
