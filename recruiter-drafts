@@ -1,0 +1,50 @@
+#!/bin/bash
+# Weekly recruiter email draft creator
+# Runs via launchd, invokes Claude Code to search Gmail and create drafts
+
+export PATH="/Users/willy/.nvm/versions/node/v20.19.4/bin:$PATH"
+
+LOGFILE="/tmp/recruiter-drafts.log"
+
+echo "$(date): Starting recruiter draft run" >> "$LOGFILE"
+
+claude --print -p "$(cat <<'PROMPT'
+You are handling a weekly recruiter email triage for Will Smith (willsmithte@gmail.com).
+
+CONTEXT:
+- Will is a SWE at Amazon in Canada
+- He is NOT actively looking for roles right now
+- He is planning to move to the US in 2027 via E-3 visa (his wife wants to stay in Canada at least another year for their second baby, healthcare system comfort, and support network)
+- He wants to maintain good relationships with recruiters for when the time comes
+- He has been working with Amy Meyer at Aussie Recruit (amy@aussierecruitsf.com) for US roles specifically
+
+TASK:
+1. Search Gmail for unanswered recruiter/job outreach from the past 7 days. Use these queries:
+   - Personal recruiter emails (not newsletters/bulk): "is:inbox newer_than:7d (recruiter OR role OR opportunity OR position OR hiring) -category:promotions"
+   - LinkedIn job messages: "from:linkedin.com newer_than:7d subject:(messaged you OR opportunity OR role OR position)"
+
+2. For each result, check if Will has already replied. Skip if he has. Skip obvious newsletters/bulk emails.
+
+3. For genuinely personal outreach that needs a reply, create a draft reply that is:
+   - Warm, appreciative, and human
+   - Honest that he's not actively looking right now but plans to move to the US in 2027
+   - Specific to what they actually wrote (don't be generic)
+   - Short (3-5 sentences max)
+   - Signs off as "Will"
+
+4. After processing, use /notify to send a push notification summarizing:
+   - How many recruiter emails found
+   - How many drafts created
+   - Brief description of each draft (who from, what role)
+   - If none found, still notify: "No recruiter emails to handle this week"
+
+USE: GMAIL_DIR=~/.claude/skills/gmail
+Gmail CLI: $GMAIL_DIR/.venv/bin/python $GMAIL_DIR/scripts/gmail.py
+
+To create drafts: gmail.py draft --reply-to MSG_ID --body "..."
+To read emails: gmail.py read --query "..." --limit 20 --full
+To get a specific email: gmail.py get --id MSG_ID
+PROMPT
+)" >> "$LOGFILE" 2>&1
+
+echo "$(date): Finished recruiter draft run" >> "$LOGFILE"
