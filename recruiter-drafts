@@ -64,6 +64,10 @@ TASK:
    - How many drafts created
    - Brief description of each draft (who from, what role)
    - If none found: "No recruiter emails to handle this week"
+
+4. If any drafts were created, also email Will a summary so he knows to check his drafts:
+   ~/.claude/skills/gmail/.venv/bin/python ~/.claude/skills/gmail/scripts/gmail.py send --to "willsmithte@gmail.com" --subject "Recruiter drafts ready to review" --body "SUMMARY OF DRAFTS"
+   Include who each draft is to, what role/company, and a reminder to review and send them from Gmail drafts.
 INSTRUCTIONS
 
 claude --print --dangerously-skip-permissions --allowed-tools "Bash" -p "$(cat "$PROMPT_FILE")" >> "$LOGFILE" 2>&1
