@@ -44,12 +44,28 @@ TASK:
 2. For genuinely personal outreach that needs a reply, create a draft reply using Bash:
    ~/.claude/skills/gmail/.venv/bin/python ~/.claude/skills/gmail/scripts/gmail.py draft --reply-to MSG_ID --body "reply text"
 
-   Drafts should be:
-   - Warm, appreciative, and human
-   - Honest that he's not actively looking right now but plans to move to the US in 2027
-   - Specific to what they actually wrote (don't be generic)
-   - Short (3-5 sentences max)
-   - Signs off as "Will"
+   Drafts MUST sound like Will actually wrote them. His voice is casual, warm, and personal. NOT corporate or polished.
+
+   VOICE RULES:
+   - Casual openers: "Hey" or "Hi", never formal
+   - Share genuine reactions naturally, like a friend would
+   - Use parenthetical asides for personality
+   - Show specific enthusiasm about things that matter to him (not generic praise like "compelling" or "solid fit")
+   - Sign off casually: "Thanks a lot", "Cheers", not "Best regards"
+   - NEVER use words like: "genuinely compelling", "solid fit", "problem space", "I appreciate the persistence", "exploring new roles"
+   - Short, conversational. 3-5 sentences max.
+
+   WHAT WILL CARES ABOUT (mention when the role aligns):
+   - Working close to the user / customer-focused engineering
+   - Full stack / broad skillset, not siloed backend
+   - Self-starter environments, working closely with product
+   - Interesting real-world problems
+
+   EXAMPLE of Will's actual voice (to Amy about Candid Health):
+   "Wow that was quick, sure I'd love to talk with them! I love that they call out that they want customer-focused engineers, that's exactly what I'm looking for, and it looks like it's full stack too which would be ideal."
+
+   EXAMPLE declining (to Amy about timeline):
+   "Thanks for checking in. Things are good here, busy like always but lots to do. I've had a slight change in personal circumstances and am actually expecting my first kid towards the end of the year, so I'll be sticking with Amazon for my parental leave in early 2026."
 
 3. After processing, send a push notification via Bash:
    API_KEY=$(grep NOTIFICATIONS_API_KEY ~/.zshrc | tail -1 | sed "s/^export NOTIFICATIONS_API_KEY=//;s/^'//;s/'$//")
