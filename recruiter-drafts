@@ -21,7 +21,20 @@ WINDOW="${RECRUITER_WINDOW:-7d}"
 # reaching out, intro, chat, team, building, contract, swe, sde.
 KEYWORDS="(recruiter OR recruiting OR role OR opportunity OR position OR hiring OR engineer OR engineering OR founder OR \"reaching out\" OR \"chat\" OR \"intro\" OR \"team\" OR \"building\" OR contract OR swe OR sde)"
 RECRUITER_RESULTS=$($GMAIL read --query "is:inbox newer_than:$WINDOW category:personal $KEYWORDS" --limit 40 --full 2>&1)
-LINKEDIN_RESULTS=$($GMAIL read --query "from:linkedin.com newer_than:$WINDOW subject:(messaged you OR opportunity OR role OR position OR engineer)" --limit 10 --full 2>&1)
+# LinkedIn InMails (personalized recruiter messages). These come from
+# inmail-hit-reply@linkedin.com regardless of subject. Replies sent to that
+# address route back into the LinkedIn thread, so Gmail drafts DO work.
+# Don't use a broad from:linkedin.com query - mostly noise (job alerts).
+LINKEDIN_INMAIL=$($GMAIL read --query "from:inmail-hit-reply@linkedin.com newer_than:$WINDOW" --limit 20 --full 2>&1)
+# Digest notifications (Aritra/Seth "just messaged you"). These don't contain
+# the message body - just a link. Include so the LLM can flag them in the
+# summary even though they can't be drafted.
+LINKEDIN_DIGEST=$($GMAIL read --query "from:messaging-digest-noreply@linkedin.com newer_than:$WINDOW" --limit 10 --full 2>&1)
+LINKEDIN_RESULTS="=== INMAILS ===
+$LINKEDIN_INMAIL
+
+=== DIGEST NOTIFICATIONS (no body, just flag in summary) ===
+$LINKEDIN_DIGEST"
 
 # Build prompt with email data inlined, instructions use literal $
 cat > "$PROMPT_FILE" <<EMAILDATA
