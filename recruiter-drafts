@@ -12,9 +12,16 @@ echo "$(date): Starting recruiter draft run" >> "$LOGFILE"
 GMAIL_DIR="$HOME/.claude/skills/gmail"
 GMAIL="$GMAIL_DIR/.venv/bin/python $GMAIL_DIR/scripts/gmail.py"
 
-# Fetch recruiter emails from the past 7 days
-RECRUITER_RESULTS=$($GMAIL read --query "is:inbox newer_than:7d (recruiter OR role OR opportunity OR position OR hiring) -category:promotions" --limit 20 --full 2>&1)
-LINKEDIN_RESULTS=$($GMAIL read --query "from:linkedin.com newer_than:7d subject:(messaged you OR opportunity OR role OR position)" --limit 10 --full 2>&1)
+# Pull all personal-category inbox mail. Let the LLM filter for real recruiter outreach.
+# Keyword filtering was too narrow  -  missed e.g. "Engineering @ Navattic" because the
+# subject didn't contain recruiter/role/opportunity/position/hiring.
+WINDOW="${RECRUITER_WINDOW:-7d}"
+# Broad keyword list. Original was too narrow  -  missed "Engineering @ Navattic"
+# because no keyword matched the subject. Added: engineer/engineering, founder,
+# reaching out, intro, chat, team, building, contract, swe, sde.
+KEYWORDS="(recruiter OR recruiting OR role OR opportunity OR position OR hiring OR engineer OR engineering OR founder OR \"reaching out\" OR \"chat\" OR \"intro\" OR \"team\" OR \"building\" OR contract OR swe OR sde)"
+RECRUITER_RESULTS=$($GMAIL read --query "is:inbox newer_than:$WINDOW category:personal $KEYWORDS" --limit 40 --full 2>&1)
+LINKEDIN_RESULTS=$($GMAIL read --query "from:linkedin.com newer_than:$WINDOW subject:(messaged you OR opportunity OR role OR position OR engineer)" --limit 10 --full 2>&1)
 
 # Build prompt with email data inlined, instructions use literal $
 cat > "$PROMPT_FILE" <<EMAILDATA
@@ -27,7 +34,7 @@ CONTEXT:
 - He wants to maintain good relationships with recruiters for when the time comes
 - He has been working with Amy Meyer at Aussie Recruit (amy@aussierecruitsf.com) for US roles specifically
 
-Here are the Gmail search results from the past 7 days:
+Here are the Gmail search results from the past $WINDOW:
 
 === RECRUITER EMAILS ===
 $RECRUITER_RESULTS
@@ -39,9 +46,18 @@ EMAILDATA
 
 cat >> "$PROMPT_FILE" <<'INSTRUCTIONS'
 TASK:
-1. Review the emails above. Skip any that are obviously newsletters/bulk. Skip any where Will has already replied.
+1. Review the emails above. The list is broad (everything in category:personal), so most of it WON'T be recruiter mail  -  that's expected. Skip:
+   - Newsletters, bulk/marketing mail (anything with an unsubscribe link), Mailchimp blasts
+   - Transactional mail (flights, banking, GitHub notifications, app notifications, Qantas, etc.)
+   - Personal correspondence from friends/family
+   - Threads where Will has already replied (check the sent folder if unsure: `~/.claude/skills/gmail/.venv/bin/python ~/.claude/skills/gmail/scripts/gmail.py read --query "in:sent to:SENDER" --limit 3`)
 
-2. For genuinely personal outreach that needs a reply, create a draft reply using Bash:
+   What COUNTS as recruiter outreach that needs a draft (be inclusive  -  when in doubt, draft):
+   - A real human (not noreply@) writing personally about a SWE/engineering role, contract, or opportunity
+   - Could be a recruiter, an in-house hiring person, a founder reaching out about engineering, or a follow-up to one of those
+   - Subjects may NOT contain "recruiter/role/opportunity"  -  e.g. "Engineering @ COMPANY // …" still counts
+
+2. For every email matching the above, ALWAYS create a draft reply  -  even if the role doesn't fit. A polite decline that keeps the relationship warm is better than silence. Use Bash:
    ~/.claude/skills/gmail/.venv/bin/python ~/.claude/skills/gmail/scripts/gmail.py draft --reply-to MSG_ID --body "reply text"
 
    Drafts MUST sound like Will actually wrote them. His voice is casual, warm, and personal. NOT corporate or polished.
@@ -54,6 +70,13 @@ TASK:
    - Sign off casually: "Thanks a lot", "Cheers", not "Best regards"
    - NEVER use words like: "genuinely compelling", "solid fit", "problem space", "I appreciate the persistence", "exploring new roles"
    - Short, conversational. 3-5 sentences max.
+   - NEVER use em dashes (—) or en dashes (–) or double dashes (--). Use a regular hyphen with spaces around it: " - ". Or just use commas/periods.
+
+   PERSONAL CONTEXT to weave in naturally (don't dump all of it - pick what fits):
+   - Recently back from parental leave (1st kid born late 2025), getting back into the flow
+   - Happy at Amazon for now
+   - Planning a US move in 2027 (E-3 visa), so staying put in Canada for a bit
+   - Open to the right role down the road, especially anything that lines up with values below
 
    WHAT WILL CARES ABOUT (if the role aligns with any of these, briefly mention it as why it caught his eye):
    - Working close to the user / customer-focused engineering
@@ -62,17 +85,42 @@ TASK:
    - Working closely with product
    - Interesting real-world problems
 
-   IMPORTANT: Always mention that he's looking for high-ownership roles where he can have a real impact. This is non-negotiable, include it in every draft.
-   Also, when mentioning why a role is interesting, tie it to Will's values above, not to the specific industry. He's not just looking for healthtech or crypto companies. Don't say things like "if you're still working with healthtech companies". Keep it general about reconnecting.
+   IMPORTANT: Always close with a line framing the kind of role Will WOULD move for. Phrase as "the kind of high-ownership role where I can have real impact is exactly what I'd be willing to move for" or similar. This is non-negotiable.
+   Tie company-specific praise to Will's values, not to the specific industry. He's not just looking for healthtech or crypto. Don't say things like "if you're still working with healthtech companies". Keep it general about reconnecting.
 
-   GOOD EXAMPLE: "Building billing infra for independent NPs is a really cool problem, and I like that it sounds hands-on and close to the customer."
-   BAD EXAMPLE: "Would be great to reconnect if you're still working with healthtech companies."
+   READ THE COMPANY: If the recruiter mentions specific things about the team/company that align with Will's values (small team, ex-founders, talking to users, real product ownership, etc.) - call those out by name. Shows Will actually read the email and isn't sending a template.
 
-   EXAMPLE of Will's actual voice (to Amy about Candid Health):
-   "Wow that was quick, sure I'd love to talk with them! I love that they call out that they want customer-focused engineers, that's exactly what I'm looking for, and it looks like it's full stack too which would be ideal."
+   ACKNOWLEDGE EFFORT: If the recruiter clearly personalized (mentioned Will's site, a specific project, his GitHub, an essay he wrote, etc.) - open by thanking them for it. E.g. "Thanks for the follow-up, and for actually reading my site!" This is a bigger relationship-builder than the value-prop paragraph.
 
-   EXAMPLE declining (to Amy about timeline):
-   "Thanks for checking in. Things are good here, busy like always but lots to do. I've had a slight change in personal circumstances and am actually expecting my first kid towards the end of the year, so I'll be sticking with Amazon for my parental leave in early 2026."
+   IF APOLOGIZING FOR A SLOW REPLY: give a real human reason (e.g. "I've just been on parental leave and getting back into the flow of normal life again"). Never use hollow corporate phrasing like "Sorry for the slow reply" with no context.
+
+   WHEN DECLINING - DO NOT escalate to a call/meeting and DO NOT ask for more material:
+   - DO NOT say "Happy to jump on a quick call if you're up for it"
+   - DO NOT say "Feel free to send the brief through" or "send me the JD"
+   - DO close politely with "would love to reconnect down the line" / "stay in touch for down the road"
+   - The goal is to keep the relationship warm, NOT to manufacture a meeting Will doesn't want.
+
+   AVOID over-qualifiers that read as corporate: "for the moment", "at this time", "down the line" stacked together. "Happy at Amazon" beats "happy where I am at Amazon for the moment".
+
+   GOOD EXAMPLE: "Navattic looks like a cool product, and the team setup (small, lots of ex-founders, real product ownership, talking to users) is absolutely the kind of environment I care about."
+   BAD EXAMPLE: "The role sounds compelling and would be a solid fit."
+
+   FULL EXAMPLE (warm, role aligns - reply to Neil at Navattic):
+   "Hey Neil,
+
+   Thanks for the follow-up, and for actually reading my site! Sorry for the delayed response, I've just been on parental leave and getting back into the flow of normal life again.
+   Navattic looks like a cool product, and the team setup (small, lots of ex-founders, real product ownership, talking to users) is absolutely the kind of environment I care about. Right now I'm not actively looking - happy at Amazon and have some personal stuff (planning a US move in 2027) that keeps me put for a bit - but I'd love to stay in touch for down the road. This kind of high-ownership role where I can have real impact is exactly what I would be willing to move for.
+
+   Thanks a lot,
+   Will"
+
+   FULL EXAMPLE (declining, role doesn't fit - reply to Elena):
+   "Hey Elena,
+
+   Thanks for reaching out. I'm not actively looking right now - happy at Amazon and have some personal stuff (planning a US move in 2027) that's keeping me in place for a bit. That said, I'm always open to hearing about high-ownership roles where I can have real impact and work close to the customer, so would love to reconnect down the line.
+
+   Cheers,
+   Will"
 
 3. After processing, send a push notification via Bash:
    API_KEY=$(grep NOTIFICATIONS_API_KEY ~/.zshrc | tail -1 | sed "s/^export NOTIFICATIONS_API_KEY=//;s/^'//;s/'$//")
