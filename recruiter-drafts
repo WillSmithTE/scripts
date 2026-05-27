@@ -84,6 +84,7 @@ TASK:
    - NEVER use words like: "genuinely compelling", "solid fit", "problem space", "I appreciate the persistence", "exploring new roles"
    - Short, conversational. 3-5 sentences max.
    - NEVER use em dashes (—) or en dashes (–) or double dashes (--). Use a regular hyphen with spaces around it: " - ". Or just use commas/periods.
+   - NEVER hard-wrap lines inside a paragraph. Email clients handle word wrap themselves - hard-wrapping at 70-80 chars produces ugly ragged text. Each paragraph is ONE continuous line in the --body string, with `\n\n` between paragraphs.
 
    PERSONAL CONTEXT to weave in naturally (don't dump all of it - pick what fits):
    - Recently back from parental leave (1st kid born late 2025), getting back into the flow
