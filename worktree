@@ -1,0 +1,66 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+  echo "Usage: worktree <branch> [target-dir]"
+  echo
+  echo "Creates a git worktree and copies gitignored files into it (excluding .wrangler)."
+  echo "The branch is created from HEAD if it does not already exist."
+  echo "If the repo has an executable .worktree-setup, it is run inside the new worktree."
+  exit 1
+fi
+
+branch="$1"
+target="${2:-../${PWD##*/}-${branch//\//-}}"
+
+# Pre-flight: refuse on a nearly-full disk. Worktree copies (node_modules etc.) run
+# multi-GB; filling the disk mid-copy killed the 2026-08-04 nightly loop run.
+free_gb=$(df -g . | awk 'NR==2 {print $4}')
+if [ "${free_gb:-0}" -lt 5 ]; then
+  echo "worktree: only ${free_gb}GB free (<5GB), refusing. Clean up first (stale worktrees, .wrangler copies)." >&2
+  exit 1
+fi
+
+# Create the branch when it does not exist yet, which is the common case and used to be a
+# hard stop: `git worktree add <dir> <branch>` fails with "fatal: invalid reference" for a
+# name that is not already a ref, so starting new parallel work meant knowing to run
+# `git branch` first. Three cases, in the order that does the least surprising thing:
+#
+#   1. a local branch of that name           -> check it out (the old behaviour)
+#   2. exactly one remote has it             -> track the remote branch
+#   3. nothing has it                        -> create it from HEAD
+#
+# `git rev-parse --verify` is quiet and exits non-zero for an unknown ref, so it is the test
+# rather than parsing `git branch` output.
+if git rev-parse --verify --quiet "refs/heads/$branch" >/dev/null; then
+  add_args=("$target" "$branch")
+elif remote_ref=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch"); then
+  echo "worktree: branch '$branch' exists on origin, tracking it"
+  add_args=(-b "$branch" "$target" "origin/$branch")
+else
+  echo "worktree: creating branch '$branch' from $(git rev-parse --abbrev-ref HEAD)"
+  add_args=(-b "$branch" "$target")
+fi
+
+git worktree add "${add_args[@]}" || exit 1
+
+# .wrangler is excluded: it holds local D1/R2 state including multi-GB session-replay
+# blobs. The dev server recreates it; pull real data with scripts/pull-replay.mjs.
+#
+# The cost of that exclusion is real and is what the hook below exists for: in a repo whose
+# local database lives under .wrangler, a fresh worktree has the schema but no tables, and
+# the suite fails on "no such table" in a way that reads as broken code rather than a missing
+# setup step.
+git ls-files --others --ignored --exclude-standard | grep -v -E '^\.wrangler/' | rsync -a --files-from=- . "$target/" || exit 1
+
+# Per-repo setup, so anything a worktree needs beyond copied files happens once, here, rather
+# than being rediscovered by whoever opens it next. Checked into the repo it belongs to, and
+# absent in every repo that does not need one.
+if [ -x "$target/.worktree-setup" ]; then
+  echo "worktree: running .worktree-setup"
+  (cd "$target" && ./.worktree-setup) || {
+    echo "worktree: .worktree-setup failed. The worktree exists; finish setting it up by hand." >&2
+    exit 1
+  }
+fi
+
+echo "cd $target"
