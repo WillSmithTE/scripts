@@ -1,0 +1,15 @@
+#!/bin/bash
+
+for file in *; do
+  # Check if the file/directory starts with "_profile."
+  if [[ "$file" == _profile.* ]]; then
+    # Extract the file extension
+    ext="${file##*.}"
+    
+    # Construct the new file name with the literal "$userId"
+    newFile="_profile.\$userId.${file#_profile.}"
+    
+    # Rename the file
+    mv "$file" "$newFile"
+  fi
+done

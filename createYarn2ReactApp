@@ -1,0 +1,8 @@
+#!/bin/bash
+
+yarn create react-app $1
+cd $1
+yarn set version berry
+yarn
+
+

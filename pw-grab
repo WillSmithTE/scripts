@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# pw-grab — copy the most recent file from Playwright's temp artifacts dir into ~/Downloads
+# Usage: pw-grab [output-name]
+#   default name: playwright-download-<timestamp>.<ext>
+set -euo pipefail
+
+ART_GLOB="${TMPDIR:-/tmp}playwright-artifacts-*"
+LATEST=$(/usr/bin/find $ART_GLOB -type f -print0 2>/dev/null \
+  | xargs -0 stat -f '%m %N' 2>/dev/null \
+  | sort -rn | head -1 | cut -d' ' -f2-)
+
+if [[ -z "${LATEST:-}" ]]; then
+  echo "no playwright artifact files found under $ART_GLOB" >&2
+  exit 1
+fi
+
+# detect extension via `file`
+MIME=$(file --mime-type -b "$LATEST")
+case "$MIME" in
+  application/zip) EXT=zip ;;
+  application/pdf) EXT=pdf ;;
+  image/png)       EXT=png ;;
+  image/jpeg)      EXT=jpg ;;
+  text/csv)        EXT=csv ;;
+  application/json|text/json) EXT=json ;;
+  text/plain)      EXT=txt ;;
+  application/vnd.openxmlformats-officedocument.spreadsheetml.sheet) EXT=xlsx ;;
+  application/vnd.openxmlformats-officedocument.wordprocessingml.document) EXT=docx ;;
+  *)               EXT=bin ;;
+esac
+
+if [[ $# -ge 1 ]]; then
+  OUT="$HOME/Downloads/$1"
+else
+  TS=$(date +%Y%m%d-%H%M%S)
+  OUT="$HOME/Downloads/playwright-download-$TS.$EXT"
+fi
+
+cp "$LATEST" "$OUT"
+echo "$OUT"
+ls -lh "$OUT"
