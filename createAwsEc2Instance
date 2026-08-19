@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+# Launch one EC2 instance.
+#
+# Every identifier here describes one AWS account's network, so they live in
+# ~/.config/aws-scripts.env rather than in this public repo:
+#
+#   EC2_AMI=ami-...            EC2_TYPE=t2.large        EC2_KEY_NAME=...
+#   EC2_SECURITY_GROUP=sg-...  EC2_SUBNET=subnet-...
+#
+# None of them is a credential — they are useless without access to the account — but they are
+# also useless to anyone else, so there is nothing to gain by publishing them.
+
+[ -f ~/.config/aws-scripts.env ] && . ~/.config/aws-scripts.env
+
+: "${EC2_AMI:?set EC2_AMI in ~/.config/aws-scripts.env}"
+: "${EC2_KEY_NAME:?set EC2_KEY_NAME in ~/.config/aws-scripts.env}"
+: "${EC2_SECURITY_GROUP:?set EC2_SECURITY_GROUP in ~/.config/aws-scripts.env}"
+: "${EC2_SUBNET:?set EC2_SUBNET in ~/.config/aws-scripts.env}"
+
+aws ec2 run-instances \
+  --image-id "$EC2_AMI" \
+  --count 1 \
+  --instance-type "${EC2_TYPE:-t2.large}" \
+  --key-name "$EC2_KEY_NAME" \
+  --security-group-ids "$EC2_SECURITY_GROUP" \
+  --subnet-id "$EC2_SUBNET"

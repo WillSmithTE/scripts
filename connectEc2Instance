@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+# SSH into the EC2 box.
+#
+# The host and key are not written into this file. This repo is public, and a hostname plus a
+# key filename is a map to a live machine — no secret on its own, but nothing anybody gains
+# from it either. Put the real values in ~/.config/aws-scripts.env, which is not in git:
+#
+#   EC2_HOST=ec2-1-2-3-4.eu-central-1.compute.amazonaws.com
+#   EC2_KEY=keypair2.pem
+#
+# Or pass them: connectEc2Instance <host> [key]
+
+[ -f ~/.config/aws-scripts.env ] && . ~/.config/aws-scripts.env
+
+host="${1:-${EC2_HOST:-}}"
+key="${2:-${EC2_KEY:-}}"
+
+if [ -z "$host" ] || [ -z "$key" ]; then
+  echo "connectEc2Instance: need a host and a key." >&2
+  echo "Set EC2_HOST and EC2_KEY in ~/.config/aws-scripts.env, or pass them as arguments." >&2
+  exit 1
+fi
+
+exec ssh -i "$key" "ec2-user@$host"

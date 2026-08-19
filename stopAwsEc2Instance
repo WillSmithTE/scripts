@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+# Stop an EC2 instance. Takes the instance id, which the version of this script that sat
+# untracked on disk for years did not: its `--instance-ids` was empty, so it always failed.
+
+if [ -z "${1:-}" ]; then
+  echo "Usage: stopAwsEc2Instance <instance-id>" >&2
+  echo "List them with: aws ec2 describe-instances --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output table" >&2
+  exit 1
+fi
+
+aws ec2 stop-instances --instance-ids "$1"
