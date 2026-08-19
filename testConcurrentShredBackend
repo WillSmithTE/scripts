@@ -1,0 +1,28 @@
+#!/bin/bash
+
+URL="https://backend-2-workers-prod.willsmithte.workers.dev/resort/enabled"
+OUTPUT_FILE="concurrent_responses.txt"
+CONCURRENT_REQUESTS=10
+
+# Function to make a request and output the result
+make_request() {
+  echo "making request"
+  RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -o - "$URL")
+  echo "response received"
+  BODY=$(echo "$RESPONSE" | sed -e 's/HTTPSTATUS\:.*//g')
+  STATUS=$(echo "$RESPONSE" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+  echo "Response: $BODY" >> $OUTPUT_FILE
+  echo "Status Code: $STATUS" >> $OUTPUT_FILE
+  echo "-----" >> $OUTPUT_FILE
+}
+
+# Clear the output file
+echo "" > $OUTPUT_FILE
+
+# Export the function to be used by parallel
+export -f make_request
+export URL
+export OUTPUT_FILE
+
+# Run the requests in parallel
+seq $CONCURRENT_REQUESTS | xargs -n1 -P$CONCURRENT_REQUESTS bash -c 'make_request'
