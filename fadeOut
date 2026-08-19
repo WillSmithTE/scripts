@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Check for correct number of arguments
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <input_file> <fade_duration>"
+    exit 1
+fi
+
+input="$1"
+fade_duration="$2"
+ext="${input##*.}"
+output="${input%.$ext}_faded.$ext"
+
+duration=$(ffprobe -i "$input" -show_entries format=duration -v quiet -of csv="p=0")
+fade_start=$(awk "BEGIN {print ($duration - $fade_duration > 0) ? $duration - $fade_duration : 0}")
+
+ffmpeg -i "$input" -af "afade=t=out:st=$fade_start:d=$fade_duration" "$output"

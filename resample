@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Check for correct number of arguments
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <input_file>"
+    exit 1
+fi
+input_file="$1"
+temp_file="${input_file%.*}_temp.${input_file##*.}"
+
+echo "Resampling '$input_file' to 48000 Hz"
+ffmpeg -i "$input_file" -ar 48000 "$temp_file"
+
+# Replace the original file with the resampled file
+mv "$temp_file" "$input_file"
+

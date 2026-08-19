@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Directory containing the audio files
+AUDIO_DIR="public/audio"
+
+# Iterate over .wav and .mp3 files in the directory and its subdirectories
+find "$AUDIO_DIR" -type f \( -name '*.wav' -o -name '*.mp3' \) | while IFS= read -r file; do
+    # Properly handle filenames with spaces
+    dir="$(dirname "$file")"
+    base="$(basename "$file")"
+    new_file="${dir}/resampled-${base}"
+
+    echo "Resampling '$file' to 48000 Hz"
+
+    # Run ffmpeg to resample the file, handling spaces in filenames
+    ffmpeg -i "$file" -ar 48000 "$new_file"
+
+    # Replace the original file with the resampled file, handling spaces in filenames
+    mv "$new_file" "$file"
+done
+
+echo "Resampling complete."

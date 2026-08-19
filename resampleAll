@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Directory containing the audio files
+AUDIO_DIR="public/audio"
+
+
+# Find all .wav and .mp3 files and resample them
+find "$AUDIO_DIR" -type f \( -name '*.wav' -o -name '*.mp3' \) -exec bash -c 'resample "$0"' {} \;
+
+echo "Resampling complete."
+
