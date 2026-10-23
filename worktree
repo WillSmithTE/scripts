@@ -3,7 +3,8 @@
 if [ -z "$1" ]; then
   echo "Usage: worktree <branch> [target-dir]"
   echo
-  echo "Creates a git worktree and copies gitignored files into it (excluding .wrangler)."
+  echo "Creates a git worktree and copies gitignored files into it (excluding .wrangler and .claude/worktrees)."
+  echo "Paths listed in the repo's .worktreeignore are symlinked to this checkout instead of copied."
   echo "The branch is created from HEAD if it does not already exist."
   echo "If the repo has an executable .worktree-setup, it is run inside the new worktree."
   exit 1
@@ -50,7 +51,40 @@ git worktree add "${add_args[@]}" || exit 1
 # local database lives under .wrangler, a fresh worktree has the schema but no tables, and
 # the suite fails on "no such table" in a way that reads as broken code rather than a missing
 # setup step.
-git ls-files --others --ignored --exclude-standard | grep -v -E '^\.wrangler/' | rsync -a --files-from=- . "$target/" || exit 1
+#
+# A repo's .worktreeignore lists path prefixes (one per line, # comments) that are symlinked
+# to this checkout instead of copied, so multi-GB data stays visible at zero disk cost.
+link_prefixes=()
+if [ -f .worktreeignore ]; then
+  while IFS= read -r line; do
+    line="${line%%#*}"; line="${line%/}"; line="${line// /}"
+    [ -n "$line" ] && link_prefixes+=("$line")
+  done < .worktreeignore
+fi
+
+is_linked() {
+  local p
+  for p in "${link_prefixes[@]}"; do
+    [[ "$1" == "$p" || "$1" == "$p"/* ]] && return 0
+  done
+  return 1
+}
+
+# --directory collapses wholly ignored dirs into one entry, so a big dir becomes one symlink.
+linked=0
+while IFS= read -r entry; do
+  path="${entry%/}"
+  is_linked "$path" || continue
+  # Already reachable (e.g. through a linked parent dir); linking again would write into this checkout.
+  [ -e "$target/$path" ] || [ -L "$target/$path" ] && continue
+  mkdir -p "$target/$(dirname "$path")"
+  ln -s "$PWD/$path" "$target/$path" && linked=$((linked + 1))
+done < <(git ls-files --others --ignored --exclude-standard --directory)
+[ "$linked" -gt 0 ] && echo "worktree: symlinked $linked .worktreeignore entries to $PWD"
+
+git ls-files --others --ignored --exclude-standard | grep -v -E '^(\.wrangler|\.claude/worktrees)/' | while IFS= read -r f; do
+  is_linked "$f" || printf '%s\n' "$f"
+done | rsync -a --files-from=- . "$target/" || exit 1
 
 # Per-repo setup, so anything a worktree needs beyond copied files happens once, here, rather
 # than being rediscovered by whoever opens it next. Checked into the repo it belongs to, and
