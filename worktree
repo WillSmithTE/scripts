@@ -72,15 +72,26 @@ is_linked() {
 
 # --directory collapses wholly ignored dirs into one entry, so a big dir becomes one symlink.
 linked=0
+linked_paths=()
 while IFS= read -r entry; do
   path="${entry%/}"
   is_linked "$path" || continue
   # Already reachable (e.g. through a linked parent dir); linking again would write into this checkout.
   [ -e "$target/$path" ] || [ -L "$target/$path" ] && continue
   mkdir -p "$target/$(dirname "$path")"
-  ln -s "$PWD/$path" "$target/$path" && linked=$((linked + 1))
+  ln -s "$PWD/$path" "$target/$path" && linked=$((linked + 1)) && linked_paths+=("$path")
 done < <(git ls-files --others --ignored --exclude-standard --directory)
 [ "$linked" -gt 0 ] && echo "worktree: symlinked $linked .worktreeignore entries to $PWD"
+
+# Ignore rules ending in "/" don't match a symlink, so git would list the links as untracked
+# (blocking `git worktree remove`). Exact paths only; in this checkout they are ignored already.
+if [ "${#linked_paths[@]}" -gt 0 ]; then
+  exclude="$(git rev-parse --git-common-dir)/info/exclude"
+  mkdir -p "$(dirname "$exclude")"
+  for p in "${linked_paths[@]}"; do
+    grep -qxF "/$p" "$exclude" 2>/dev/null || printf '/%s\n' "$p" >> "$exclude"
+  done
+fi
 
 git ls-files --others --ignored --exclude-standard | grep -v -E '^(\.wrangler|\.claude/worktrees)/' | while IFS= read -r f; do
   is_linked "$f" || printf '%s\n' "$f"
